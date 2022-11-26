@@ -1,5 +1,6 @@
 package cc.ioctl.tmoe.hook.func
 
+import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.view.View
@@ -8,6 +9,8 @@ import androidx.appcompat.app.AlertDialog
 import cc.ioctl.tmoe.hook.base.CommonDynamicHook
 import cc.ioctl.tmoe.lifecycle.Parasitics
 import cc.ioctl.tmoe.td.AccountController
+import cc.ioctl.tmoe.td.binding.Chat
+import cc.ioctl.tmoe.td.binding.User
 import cc.ioctl.tmoe.ui.util.FaultyDialog
 import cc.ioctl.tmoe.util.*
 import de.robv.android.xposed.XposedBridge
@@ -113,6 +116,8 @@ object DumpGroupMember : CommonDynamicHook() {
         fChat_flags = Reflex.findField(kChat, Integer.TYPE, "flags")
         fChat_access_hash = Reflex.findField(kChat, java.lang.Long.TYPE, "access_hash")
         fChat_username = Reflex.findField(kChat, String::class.java, "username")
+        User.initialize()
+        Chat.initialize()
 
         // test linkage
         val currentSlot = AccountController.getCurrentActiveSlot()
@@ -260,6 +265,7 @@ object DumpGroupMember : CommonDynamicHook() {
                     updateChannelInfoList(slot, chatSet)
                 }
             }
+
             else -> {
                 Log.w("unhandled response: $klass")
             }
@@ -457,6 +463,7 @@ object DumpGroupMember : CommonDynamicHook() {
         return when (name) {
             "org.telegram.tgnet.TLRPC\$TL_channels_getParticipants",
             "org.telegram.tgnet.TLRPC\$TL_channels_getParticipant" -> true
+
             else -> false
         }
     }
@@ -489,20 +496,24 @@ object DumpGroupMember : CommonDynamicHook() {
         }
         database.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS channel_members
+            CREATE TABLE IF NOT EXISTS t_channel_member
             (
                 gid        INTEGER NOT NULL,
                 uid        INTEGER NOT NULL,
                 flags      INTEGER NOT NULL,
                 join_date  INTEGER,
                 inviter_id INTEGER,
+                ext_status INTEGER NOT NULL,
+                ext_flags  INTEGER NOT NULL,
+                update_ts  INTEGER NOT NULL,
                 PRIMARY KEY (gid, uid)
             )
         """.trimIndent()
         )
+        database.execSQL("CREATE INDEX IF NOT EXISTS idx_t_channel_member_uid ON t_channel_member (uid)")
         database.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS users
+            CREATE TABLE IF NOT EXISTS t_user
             (
                 uid         INTEGER PRIMARY KEY,
                 access_hash INTEGER NOT NULL,
@@ -512,13 +523,14 @@ object DumpGroupMember : CommonDynamicHook() {
                 bot         INTEGER,
                 deleted     INTEGER,
                 inactive    INTEGER,
-                lang_code   TEXT
+                lang_code   TEXT,
+                update_ts   INTEGER NOT NULL
             )
             """.trimIndent()
         )
         database.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS channels
+            CREATE TABLE IF NOT EXISTS t_channel
             (
                 uid          INTEGER PRIMARY KEY,
                 access_hash  INTEGER NOT NULL,
@@ -531,7 +543,8 @@ object DumpGroupMember : CommonDynamicHook() {
                 has_link     INTEGER NOT NULL,
                 noforwards   INTEGER NOT NULL,
                 join_to_send INTEGER NOT NULL,
-                join_request INTEGER NOT NULL
+                join_request INTEGER NOT NULL,
+                update_ts    INTEGER NOT NULL
             )
             """.trimIndent()
         )
@@ -595,19 +608,24 @@ object DumpGroupMember : CommonDynamicHook() {
     }
 
     private fun updateChannelMemberInfoList(slot: Int, info: List<MemberInfo>) {
+        val now = System.currentTimeMillis() / 1000L
         val database = ensureDatabase(slot)
         database.beginTransaction()
         try {
             for (memberInfo in info) {
                 database.execSQL(
-                    "INSERT OR REPLACE INTO channel_members (gid, uid, flags, join_date, inviter_id) " +
-                            "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO t_channel_member (gid, uid, flags, join_date, inviter_id," +
+                            " ext_status, ext_flags, update_ts) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     arrayOf(
                         memberInfo.gid.toString(),
                         memberInfo.uid.toString(),
                         memberInfo.flags.toString(),
                         memberInfo.joinTime.toString(),
-                        memberInfo.inviterId.toString()
+                        memberInfo.inviterId.toString(),
+                        "0",
+                        "0",
+                        now.toString()
                     )
                 )
             }
@@ -618,13 +636,32 @@ object DumpGroupMember : CommonDynamicHook() {
     }
 
     private fun updateUserInfoList(slot: Int, info: List<UserInfo9>) {
+        val now = System.currentTimeMillis() / 1000L
         val database = ensureDatabase(slot)
         database.beginTransaction()
         try {
             for (userInfo in info) {
+                if (userInfo.deleted) {
+                    // we don't want to overwrite the user info
+                    val affected = database.update(
+                        "t_user",
+                        ContentValues().apply {
+                            put("access_hash", userInfo.accessHash)
+                            put("deleted", 1)
+                            put("update_ts", now)
+                        },
+                        "uid = ?",
+                        arrayOf(userInfo.uid.toString())
+                    )
+                    if (affected != 0) {
+                        // done, no need to insert again.
+                        continue
+                    }
+                }
                 database.execSQL(
-                    "INSERT OR REPLACE INTO users (uid, access_hash, name, flags, username, bot, deleted, inactive, lang_code) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO t_user (uid, access_hash, name, flags, username, " +
+                            "bot, deleted, inactive, lang_code, update_ts) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     arrayOf(
                         userInfo.uid.toString(),
                         userInfo.accessHash.toString(),
@@ -634,7 +671,8 @@ object DumpGroupMember : CommonDynamicHook() {
                         if (userInfo.bot) "1" else "0",
                         if (userInfo.deleted) "1" else "0",
                         if (userInfo.inactive) "1" else "0",
-                        userInfo.langCode
+                        userInfo.langCode,
+                        now.toString()
                     )
                 )
             }
@@ -645,15 +683,17 @@ object DumpGroupMember : CommonDynamicHook() {
     }
 
     private fun updateChannelInfoList(slot: Int, info: List<ChannelInfo>) {
+        val now = System.currentTimeMillis() / 1000L
         val database = ensureDatabase(slot)
         database.beginTransaction()
         try {
             for (channelInfo in info) {
                 database.execSQL(
-                    "INSERT OR REPLACE INTO channels " +
-                            "(uid, access_hash, name, flags, username, broadcast, megagroup, gigagroup, has_link, " +
-                            "noforwards, join_to_send, join_request) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO t_channel " +
+                            "(uid, access_hash, name, flags, username, " +
+                            "broadcast, megagroup, gigagroup, has_link, noforwards, join_to_send, join_request, " +
+                            "update_ts) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     arrayOf(
                         channelInfo.uid.toString(),
                         channelInfo.accessHash.toString(),
@@ -666,7 +706,8 @@ object DumpGroupMember : CommonDynamicHook() {
                         if (channelInfo.hasLink) "1" else "0",
                         if (channelInfo.noForwards) "1" else "0",
                         if (channelInfo.joinToSend) "1" else "0",
-                        if (channelInfo.joinRequest) "1" else "0"
+                        if (channelInfo.joinRequest) "1" else "0",
+                        now.toString()
                     )
                 )
             }
@@ -676,7 +717,8 @@ object DumpGroupMember : CommonDynamicHook() {
         }
     }
 
-    private fun getMessageForTL_error(err: Any): String {
+    @JvmStatic
+    fun getMessageForTL_error(err: Any): String {
         return try {
             val code = Reflex.getInstanceObject(err, "code", Integer.TYPE) as Int
             val text = Reflex.getInstanceObject(err, "text", String::class.java) as String
@@ -685,4 +727,261 @@ object DumpGroupMember : CommonDynamicHook() {
             e.toString()
         }
     }
+
+    data class GroupDescriptor(
+        val uid: Long,
+        val accessHash: Long,
+        val name: String,
+        val username: String?,
+        val flags: Int,
+    ) {
+        override fun toString(): String {
+            return "GroupDescriptor(uid=$uid, accessHash=$accessHash, name='$name', username=$username, flags=$flags)"
+        }
+    }
+
+    fun queryUserGroupDescriptors(uid: Long): List<GroupDescriptor> {
+        val currentSlot = AccountController.getCurrentActiveSlot()
+        if (currentSlot < 0) {
+            Log.w("queryUserGroupDescriptors: no active account")
+            return emptyList()
+        }
+        if (uid <= 0) {
+            return emptyList()
+        }
+        val gids = mutableSetOf<Long>()
+        val database = ensureDatabase(currentSlot)
+        val start = System.nanoTime()
+        database.rawQuery(
+            "SELECT gid FROM t_channel_member WHERE uid = ?",
+            arrayOf(uid.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                gids.add(cursor.getLong(0))
+            }
+        }
+        val results = gids.map { gid ->
+            var group: GroupDescriptor? = null
+            database.rawQuery(
+                "SELECT access_hash, name, username, flags FROM t_channel WHERE uid = ?",
+                arrayOf(gid.toString())
+            ).use { cursor ->
+                if (cursor.moveToNext()) {
+                    group = GroupDescriptor(
+                        gid,
+                        cursor.getLong(0),
+                        cursor.getString(1),
+                        cursor.getString(2),
+                        cursor.getInt(3)
+                    )
+                }
+            }
+            group ?: GroupDescriptor(
+                gid,
+                0,
+                gid.toString(),
+                null,
+                4096
+            )
+        }.filter {
+            // exclude broadcast channels
+            (it.flags and 32) == 0
+        }
+        val cost = (System.nanoTime() - start) / 1000L
+        // Log.d("queryUserGroupDescriptors: ${results.size} groups, $cost us")
+        return results
+    }
+
+    @JvmStatic
+    fun getChatFormCache(uid: Long): Any? {
+        val currentSlot = AccountController.getCurrentActiveSlot()
+        if (currentSlot < 0) {
+            error("queryUserGroupDescriptors: no active account")
+        }
+        val accountInstance = Reflex.invokeStatic(
+            Initiator.loadClass("org.telegram.messenger.AccountInstance"),
+            "getInstance", currentSlot, Integer.TYPE
+        )!!
+        val messagesController = Reflex.invokeVirtual(accountInstance, "getMessagesController")!!
+        // MessagesController->getChat(Ljava/lang/Long;)Lorg/telegram/tgnet/TLRPC$Chat;
+        return Reflex.invokeVirtual(messagesController, "getChat", uid, java.lang.Long::class.java)
+    }
+
+    @JvmStatic
+    fun createMinimalChannelChat(groupInfo: GroupDescriptor): Any {
+        // create a minimal channel chat object which only contains id, access_hash, title, username and some flags
+        val kTL_channel = Initiator.loadClass("org.telegram.tgnet.TLRPC\$TL_channel")
+        val kTL_chat = Initiator.loadClass("org.telegram.tgnet.TLRPC\$TL_chat")
+        val isBasicGroup = groupInfo.flags.let {
+            (it and 32 == 0) and (it and 256 == 0) and (it and 67108864 == 0)
+        }
+        return (if (isBasicGroup) kTL_chat else kTL_channel).newInstance().also { obj ->
+            val chat = Chat(obj)
+            chat.id = groupInfo.uid
+            chat.title = groupInfo.name
+            chat.access_hash = groupInfo.accessHash
+            chat.username = groupInfo.username
+            val allowedFlags = bitwiseOr(
+                1, 2, 4, 32, 128, 256, 512, 2048,
+                524288, 1048576, 33554432, 67108864,
+                134217728, 268435456, 536870912, 1073741824
+            )
+            val flags = (groupInfo.flags and allowedFlags) or 4096
+            chat.flags = flags
+            // update flag attributes
+            chat.creator = flags and 1 != 0
+            chat.left = flags and 4 != 0
+            chat.broadcast = flags and 32 != 0
+            chat.megagroup = flags and 256 != 0
+            chat.has_link = flags and 1048576 != 0
+            chat.gigagroup = flags and 67108864 != 0
+            chat.noforwards = flags and 134217728 != 0
+            chat.join_to_send = flags and 268435456 != 0
+            chat.join_request = flags and 536870912 != 0
+            chat.forum = flags and 1073741824 != 0
+        }
+    }
+
+    @JvmStatic
+    private fun bitwiseOr(vararg flags: Int): Int {
+        var result = 0
+        flags.forEach { result = result or it }
+        return result
+    }
+
+    data class UserDescriptor(
+        val uid: Long,
+        val accessHash: Long,
+        val name: String,
+        val username: String?,
+        val flags: Int,
+    ) {
+        override fun toString(): String {
+            return "UserDescriptor(uid=$uid, accessHash=$accessHash, name='$name', username=$username, flags=$flags)"
+        }
+    }
+
+    @JvmStatic
+    fun getUserFormCache(uid: Long): Any? {
+        check(uid > 0) { "uid must be positive" }
+        val currentSlot = AccountController.getCurrentActiveSlot()
+        check(currentSlot >= 0) { "getUserFormCache: no active account" }
+        val accountInstance = Reflex.invokeStatic(
+            Initiator.loadClass("org.telegram.messenger.AccountInstance"),
+            "getInstance", currentSlot, Integer.TYPE
+        )!!
+        val messagesController = Reflex.invokeVirtual(accountInstance, "getMessagesController")!!
+        // MessagesController->getUser(Ljava/lang/Long;)Lorg/telegram/tgnet/TLRPC$User;
+        return Reflex.invokeVirtual(messagesController, "getUser", uid, java.lang.Long::class.java)
+    }
+
+    @JvmStatic
+    fun queryUserDescriptor(uid: Long): UserDescriptor? {
+        val currentSlot = AccountController.getCurrentActiveSlot()
+        if (currentSlot < 0) {
+            Log.w("queryUserDescriptor: no active account")
+            return null
+        }
+        check(uid > 0) { "uid must be positive" }
+        val database = ensureDatabase(currentSlot)
+        var user: UserDescriptor? = null
+        database.rawQuery(
+            "SELECT access_hash, name, username, flags FROM t_user WHERE uid = ?",
+            arrayOf(uid.toString())
+        ).use { cursor ->
+            if (cursor.moveToNext()) {
+                user = UserDescriptor(
+                    uid,
+                    cursor.getLong(0),
+                    cursor.getString(1),
+                    cursor.getString(2),
+                    cursor.getInt(3)
+                )
+            }
+        }
+        return user
+    }
+
+    @JvmStatic
+    fun createMinimalUser(userInfo: UserDescriptor): Any {
+        check(userInfo.uid > 0) { "uid must be positive" }
+        // create a minimal user object which only contains id, access_hash, name, username and some flags
+        val kTL_user = Initiator.loadClass("org.telegram.tgnet.TLRPC\$TL_user")
+        return kTL_user.newInstance().also { obj ->
+            val user = User(obj)
+            user.id = userInfo.uid
+            user.first_name = userInfo.name
+            user.last_name = ""
+            user.access_hash = userInfo.accessHash
+            user.username = userInfo.username
+            // flag 4: last name, which has been dropped
+            val allowedFlags = bitwiseOr(
+                1, 2, 8,
+                2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144,
+                2097152, 8388608, 67108864
+            )
+            val flags = (userInfo.flags and allowedFlags) or 1048576
+            user.flags = flags
+            // update flag attributes
+            user.contact = flags and 2048 != 0
+            user.mutual_contact = flags and 4096 != 0
+            user.deleted = flags and 8192 != 0
+            user.bot = flags and 16384 != 0
+        }
+    }
+
+    @JvmStatic
+    fun queryUserInfoById(uid: Long): UserDescriptor? {
+        val currentSlot = AccountController.getCurrentActiveSlot()
+        if (currentSlot < 0) {
+            Log.w("queryUserInfoById: no active account")
+            return null
+        }
+        check(uid > 0) { "uid must be positive" }
+        val database = ensureDatabase(currentSlot)
+        var user: UserDescriptor? = null
+        database.rawQuery(
+            "SELECT access_hash, name, username, flags FROM t_user WHERE uid = ?",
+            arrayOf(uid.toString())
+        ).use { cursor ->
+            if (cursor.moveToNext()) {
+                user = UserDescriptor(
+                    uid,
+                    cursor.getLong(0),
+                    cursor.getString(1),
+                    cursor.getString(2),
+                    cursor.getInt(3)
+                )
+            }
+        }
+        return user
+    }
+
+    @JvmStatic
+    fun queryChannelInfoById(uid: Long): GroupDescriptor? {
+        val currentSlot = AccountController.getCurrentActiveSlot()
+        if (currentSlot < 0) {
+            Log.w("queryChannelInfoById: no active account")
+            return null
+        }
+        check(uid > 0) { "uid must be positive" }
+        val database = ensureDatabase(currentSlot)
+        var group: GroupDescriptor? = null
+        database.rawQuery(
+            "SELECT access_hash, name, username, flags FROM t_channel WHERE uid = ?",
+            arrayOf(uid.toString())
+        ).use { cursor ->
+            if (cursor.moveToNext()) {
+                group = GroupDescriptor(
+                    uid,
+                    cursor.getLong(0),
+                    cursor.getString(1),
+                    cursor.getString(2),
+                    cursor.getInt(3)
+                )
+            }
+        }
+        return group
+    }
+
 }
