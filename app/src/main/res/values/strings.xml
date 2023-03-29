@@ -19,6 +19,7 @@
     <string name="AddInfoContainer">AddInfoContainer</string>
     <string name="AddInfoContainerD">AddInfoContainer</string>
     <string name="ProhibitSpoilers">Prohibit Spoilers</string>
+    <string name="ProhibitSpoilersD">Spoiler content will be displayed as normal</string>
     <string name="SendCommand">Ask for tap command</string>
     <string name="ForceBlurChatAvailable">Force Chat Blur Option Available</string>
     <string name="DisablePremiumStickerAnimation">Disable Premium Sticker Animation</string>
@@ -32,10 +33,11 @@
     <string name="AccessHash">Access Hash</string>
     <string name="GitHub" translatable="false">GitHub</string>
     <string name="SourceCode">Source code</string>
+    <string name="DiscussionGroup">Discussion group</string>
     <string name="LicenseNotices">License notices</string>
     <string name="HideUserAvatar">Hide specific user avatars</string>
     <string name="NotEnabled">Not enabled</string>
-    <string name="HideUserAvatarEnabledTargetCount" formatted="false">%d user(s), %d channel(s), %d group(s)</string>
+    <string name="HideUserAvatarEnabledTargetCount">%1$d user(s), %2$d channel(s), %3$d group(s)</string>
     <string name="NotImplemented">Not implemented yet</string>
     <string name="VersionInfo">Version</string>
     <string name="TextCopied">Text copied to clipboard.</string>
@@ -56,7 +58,7 @@
     <string name="HistoricGroupMemberRecordDesc">Show historic common groups in a user\'s profile, requiring \"Persist Access Hash\" enabled.</string>
     <string name="Ignore">Ignore</string>
     <string name="RestrictContentMitigationDesc">Allow copy, save and screenshot in secret chats</string>
-    <string name="KeepVideoMuted">Keep video muted on volume key press</string>
+    <string name="KeepVideoMuted">Keep video muted when pressing the volume button</string>
     <string name="DebugAndLogsForClient">Debug &amp; Logs</string>
     <string name="DisableLogConfigOnStartup">Disable Debug Logs on Startup</string>
     <string name="DisableLogConfigOnStartupDesc">Set LOGS_ENABLED in BuildVars.java and FileLog.cpp to false on startup, for debug variant clients only, not useful for release builds.</string>
@@ -66,6 +68,19 @@
     <string name="BuildVarsLogsEnabled">LOGS_ENABLED (BuildVars.java)</string>
     <string name="BuildVarsLogsEnabledDesc">See LOGS_ENABLED in BuildVars.java (instant, non-persistent)</string>
     <string name="BuildVarsLogsEnabledDescSymbolNotFound">### Field not found. See LOGS_ENABLED in BuildVars.java</string>
-    <string name="ViewTopicAsMsgByDefault">View as Messages by default</string>
-    <string name="ViewTopicAsMsgByDefaultDesc">\"View as Messages\" by default in topic chats</string>
+    <string name="ViewTopicAsMsgByDefault">View as Group by default</string>
+    <string name="ViewTopicAsMsgByDefaultDesc">\"View as Group\" by default in topic chats</string>
+    <string name="HidePremiumStickerSetTab">Hide Premium Sticker Tab</string>
+    <string name="HidePremiumStickerSetTabDesc">For premium users only. Remove the premium sticker set tab from the sticker panel.</string>
+    <string name="ViewChannel">View Channel</string>
+    <string name="ForwardsRestrictedInfoGroup">Сopying and forwarding is not allowed in this group.</string>
+    <string name="UnsupportedOperation">Unsupported operation.</string>
+    <string name="Dialog_Message_ConfirmClickToSendBotCommand">Are you sure you want to send this command?</string>
+    <string name="MenuItem_HistoryMessage">History</string>
+    <string name="MenuItem_RepeatMessage">Repeat</string>
+    <string name="DebugVerbose_DoubleTapDetected">Double tap detected</string>
+    <string name="DialogTitle_OperationCompleted">Completed</string>
+    <string name="DialogTitle_OperationConfirmation">Confirmation</string>
+    <string name="DialogButton_Confirm">Confirm</string>
+    <string name="DialogMsg_ConfirmDumpChannelMembers">Fetch group members?</string>
 </resources>

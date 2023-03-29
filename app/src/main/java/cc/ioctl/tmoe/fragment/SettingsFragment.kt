@@ -56,7 +56,10 @@ class SettingsFragment : BaseHierarchyFragment() {
                 }
             )
             functionSwitch(
-                ProhibitSpoilers, "ProhibitSpoilers", R.string.ProhibitSpoilers
+                ProhibitSpoilers, "ProhibitSpoilers", R.string.ProhibitSpoilers,
+                descProvider = {
+                    LocaleController.getString("ProhibitSpoilersD", R.string.ProhibitSpoilersD)
+                }
             )
             functionSwitch(
                 HistoricalNewsOption, "HistoricalNewsOption", R.string.HistoricalNewsOption
@@ -106,6 +109,10 @@ class SettingsFragment : BaseHierarchyFragment() {
             functionSwitch(
                 ViewTopicAsMsgByDefault, "ViewTopicAsMsgByDefault", R.string.ViewTopicAsMsgByDefault,
                 "ViewTopicAsMsgByDefaultDesc", R.string.ViewTopicAsMsgByDefaultDesc
+            )
+            functionSwitch(
+                HidePremiumStickerSetTab, "HidePremiumStickerSetTab", R.string.HidePremiumStickerSetTab,
+                "HidePremiumStickerSetTabDesc", R.string.HidePremiumStickerSetTabDesc
             )
         }
         category("LostMsgMitigation", R.string.LostMsgMitigation) {
